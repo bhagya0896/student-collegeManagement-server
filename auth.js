@@ -17,6 +17,7 @@
               JWT_SECRET);
               req.user = verified;
               req.body.email = verified.email;
+              req.body.role = verified.role;
               next();
       }else{
           res.send("No token")
