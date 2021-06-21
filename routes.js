@@ -1,3 +1,4 @@
+// import packages
 require('dotenv').config();
 
 var express = require('express');
@@ -28,11 +29,12 @@ const stu_dbUrl = process.env.DB_URL_STUDENT ;
 const clg_dbUrl = process.env.DB_URL_COLLEGE ;
 
 
+// intial route
 router.get('/',(req,res)=>{
     res.send("Welcome to My App")
   });
 
-/* setting student credentials */
+
 
 // student register
 router.post ('/register',async(req,res)=>
@@ -80,11 +82,12 @@ router.post ('/register',async(req,res)=>
      
                 // Insert  new student data to db
      
+                req.body.role=0;
                 let newStudent = await db.collection('students_credentials').insertOne(req.body);
                  
                 if(newStudent){ 
-         console.log(" Registered successfully.")
-               res.send({message:' Registered successfully!Kindly login.'});
+                console.log(" Registered successfully.")
+                res.send({message:' Registered successfully!Kindly login.'});
               
                  }
          }
@@ -98,7 +101,7 @@ router.post ('/register',async(req,res)=>
   
 });
 
-// student details register
+// student additional details register
 router.post ('/details-register',auth,async(req,res)=>
 {
   const client = await mongoClient.connect(stu_dbUrl);
@@ -107,7 +110,9 @@ router.post ('/details-register',auth,async(req,res)=>
     try{
            let {studentId} = req.body;
            let db = client.db('studentdb');
+           
            let existingStudent = await db.collection('students_credentials').findOne({"_id" : objectId(studentId)});
+        
         
          if(existingStudent)
          {
@@ -144,14 +149,15 @@ router.post('/login',   async (req, res) => {
 
       let Isvalid = await bcrypt.compare(password, student.password)
       let id  = student._id;
+      let role = student.role;
 
       if (Isvalid) {
  // signin the token 
 
- let token = await JWT.sign({ email },JWT_SECRET );
+ let token = await JWT.sign({ email,role },JWT_SECRET );
  req.header("auth-token",token)
    console.log(`login :::: ${token}`)
- return res.send({message:'Login successful!!',token : token,id:id});
+ return res.send({message:'Login successful!!',token : token, id:id, role:role});
 
       }
 
@@ -160,7 +166,7 @@ router.post('/login',   async (req, res) => {
       }
     }
     else{
-        res.send({message:"Student Does Not Exist, kindly register."});// 401 unauthorized
+        res.send({message:"Email Does Not Exist, kindly register."});// 401 unauthorized
     }
       client.close();
     }catch (error) {
@@ -219,7 +225,8 @@ router.post('/forgetpassword',async(req,res)=>{
   }
 })
 
-// user resetpassword route
+
+// student resetpassword route
 router.post('/resetpassword',async(req,res)=>{
   const client = await mongoClient.connect(stu_dbUrl);
   if(client){ 
@@ -275,7 +282,7 @@ router.post('/resetpassword',async(req,res)=>{
 })
 
 //Adding colleges- admin route
-router.post ('/add-college',async(req,res)=>
+router.post ('/add-college',auth,async(req,res)=>
 {
   const client = await mongoClient.connect(clg_dbUrl);
   if(client)
@@ -283,6 +290,8 @@ router.post ('/add-college',async(req,res)=>
     try{
   
       let {logo,courseName,desp,clgName,modeOfStudy,location,courseDuration,rating}= req.body;
+      console.log(req.body)
+      req.body.applied = false;
       let db = client.db('collegedb');
            let existingCollegeData = await db.collection('college_details').findOne({"clgName" : clgName});
            req.body.collegeId = Math.random().toString(36).slice(2);
@@ -300,7 +309,7 @@ router.post ('/add-college',async(req,res)=>
                  
                 if(newCollegeDetail){ 
          
-               res.send({message:'Added successfully.'});
+               res.send({message:'College details added successfully.'});
               
                  }
          }
@@ -314,9 +323,9 @@ router.post ('/add-college',async(req,res)=>
   
 });
 
- // getCollegeDetails route
 
-  //getTodos route
+ // getting colleges  route
+
 router.get('/collegelist' , async (req,res)=>
 {
    const client = await mongoClient.connect(clg_dbUrl)
@@ -344,33 +353,102 @@ router.get('/collegelist' , async (req,res)=>
 
 
 // Adding colleges to student route
-router.put('/student/assign-college' ,auth,async (req,res)=>
+router.put('/assign-college/:studentId' ,auth,async (req,res)=>
+{
+   const client = await mongoClient.connect(stu_dbUrl)
+   const client1 = await mongoClient.connect(clg_dbUrl)
+   if(client && client1){
+       try{
+        const {studentId} = req.params;
+        const {_id} = req.body ;
+        const {college} = req.body ;
+        const db = client.db('studentdb');
+        let addCollege = await db.collection('students_details').updateOne({"studentId" : studentId},{$push:{"AppliedColleges" : {
+          'CollegeId':objectId(_id)
+        }}});
+        const db1 = client1.db('collegedb');
+        let College = await db1.collection('college_details').updateOne({"_id" :objectId(_id)},{$set:{"applied":college.applied},$push:{"StudentsApplied" : {
+          'StudentId':objectId(studentId)
+        }}});
+        if(addCollege && College)
+        {
+          
+          res.send({message:" Applied Sucessfully!!"});
+         
+        }
+        
+        client.close();
+        client1.close();
+       
+       }
+       catch(error)
+       {
+           console.log(error)
+           res.send({message : "error "});
+           client.close();
+           client1.close();
+       }
+   }
+  
+   
+});
+
+// sending email to student
+router.post('/final-college-list/:studentId' , async (req,res)=>
 {
    const client = await mongoClient.connect(stu_dbUrl)
    if(client){
        try{
-        const {studentId} = req.body;
+         let {colleges} = req.body;
+         let {studentId} = req.params;
+         console.log(studentId)
         const db = client.db('studentdb');
-        let addCollege = await db.collection('student_collegelist').update({"_id" : objectId(studentId)},{$set:{'college Id':objectid(collegeId)}});
-        if(addCollege)
-        {
-          res.send({message:"Applied Sucessfully!!"});
-         
-        }
-        
+        let studentFound = await db.collection('students_details').findOne({"studentId" : studentId});
+        console.log(studentFound)  
+          if(studentFound)
+          {
+                  let username = studentFound.firstname;
+                  console.log(username)
+                  let email = studentFound.email;
+                 console.log(email)
+                   //sending confirmation mail
+                  var mailOptions = {
+                    from: 'bhagyalakshmi96.k@gmail.com', // sender address
+                    to: email, // list of receivers
+                    subject: "Welcome to EduCo - Fly2Masters  :::: Hii,there !", // Subject line
+                    html:
+
+                    `<h3> Hello ${username} </h3>
+                    <h5> Here are the details of colleges you applied. Check it out.<h5>
+                    <p> Your Application for ${colleges.length} colleges is successfull.</p>
+                    <p> Stay updated with our app for more details and further process.</p>
+                   
+                    <p>Your Application Team</p>`
+                     
+                  };
+                  transporter.sendMail(mailOptions, function(error, info){
+                    if (error) {
+                      console.log(error);
+                    } else {
+                      console.log('Email sent: ' + info.response);}
+                      res.send({message : "Check your inbox!!"});
+                  });
+                 }  
+       
         client.close();
        
        }catch(error)
        {
            console.log(error)
-           res.send({message : "error occured while appling"});
+           res.send({message : "Error occured while sending email."});
            client.close();
        }
    }
  
 });
 
-// searching colleges  route
+
+// searching colleges by coursename route
 router.get('/colleges/:courseName' ,auth,async (req,res)=>
 {
    const client = await mongoClient.connect(clg_dbUrl)
@@ -385,6 +463,9 @@ router.get('/colleges/:courseName' ,auth,async (req,res)=>
           res.send(Colleges);
          
         }
+        else{
+          res.send({message : "No colleges available!! "});
+        }
         
         client.close();
        
@@ -398,8 +479,35 @@ router.get('/colleges/:courseName' ,auth,async (req,res)=>
  
 });
 
+
+// Adding colleges to student route
+router.get('/college-list/:studentId' ,auth,async (req,res)=>
+{
+  const client = await mongoClient.connect(clg_dbUrl)
+  if(client){
+      try{
+        let {studentId} = req.params;
+       const db = client.db('collegedb');
+       const clgData=  await db.collection('college_details').find({"StudentsApplied.StudentId":objectId(studentId)}).toArray();
+       if(clgData)
+       {
+         res.send(clgData);
+      
+       }
+
+       client.close();
+      
+      }catch(error)
+      {
+          console.log(error)
+          res.send({message : "Error occured while fetching college details."});
+          client.close();
+      }
+  }
+   
+});
 // admin register
-router.post ('/register',async(req,res)=>
+router.post ('/signup',async(req,res)=>
 {
   const client = await mongoClient.connect(clg_dbUrl);
   if(client)
@@ -421,7 +529,7 @@ router.post ('/register',async(req,res)=>
            if(password != cpassword)
            return res.send({message : "Password & confirmpassword should match."})
   
-           let db = client.db('collgedb');
+           let db = client.db('collegedb');
            let existingAdmin= await db.collection('admin_credentials').findOne({"email" : email});
         
          if(existingAdmin)
@@ -442,7 +550,7 @@ router.post ('/register',async(req,res)=>
                 let hashedcpassword  = await bcrypt.hash(req.body.cpassword,salt);
                 req.body.cpassword=hashedcpassword;
      
-                req.body.role = "admin";
+                req.body.role=1;
                 // Insert  new admin data to db
      
                 let newAdmin = await db.collection('admin_credentials').insertOne(req.body);
@@ -462,33 +570,37 @@ router.post ('/register',async(req,res)=>
   }
   
 });
+
 //admin-login route
-router.post('/login',   async (req, res) => {
+router.post('/signin',   async (req, res) => {
   const client = await mongoClient.connect(clg_dbUrl);
   if(client)
   { try 
     {
      
     let { email, password } = req.body;
+    console.log(email,password)
     // validate
     if (!email || !password)
       return res
        .send({ message: "Please enter all required fields." });
 
-    let db = client.db('studentdb');
+    let db = client.db('collegedb');
     let admin = await db.collection('admin_credentials').findOne({ "email": email });
+    console.log(admin)
     if (admin) { 
       // password validation
 
       let Isvalid = await bcrypt.compare(password, admin.password)
       let id  = admin._id;
+      let role = admin.role;
 
       if (Isvalid) {
  // signin the token 
 
- let token = await JWT.sign({ email },JWT_SECRET );
+ let token = await JWT.sign({ email,role },JWT_SECRET );
    console.log(`login :::: ${token}`)
- return res.send({message:'Login successful!!',token : token,id:id});
+ return res.send({message:'Login successful!!',token : token,id:id,role:role});
 
       }
 
@@ -501,7 +613,7 @@ router.post('/login',   async (req, res) => {
     }
       client.close();
     }catch (error) {
-      res.send({ message: 'Login unsuccessfully.'})
+      res.send({ message: 'Login unsuccessful.'})
       console.log(error);
       client.close();
     };}
